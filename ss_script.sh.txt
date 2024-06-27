@@ -1,0 +1,76 @@
+#!/bin/bash
+
+# Define the processes to start (each process as a string with its command and arguments)
+PROCESSES=(
+    "/path/to/process1 start"
+    "/path/to/process2 start"
+    "/opt/cftc/cmplSysMgr/bin/runInBackground.sh start"
+)
+
+# Define the maximum number of retries
+MAX_RETRIES=3
+
+# Function to check if a process is running
+is_process_running() {
+    local PROCESS_NAME=$1
+    pgrep -f "$PROCESS_NAME" > /dev/null 2>&1
+    return $?
+}
+
+# Function to stop a process if it is running
+stop_process() {
+    local PROCESS_NAME=$1
+    if is_process_running "$PROCESS_NAME"; then
+        echo "Stopping $PROCESS_NAME..."
+        pkill -f "$PROCESS_NAME"
+        if [ $? -eq 0 ]; then
+            echo "$PROCESS_NAME stopped successfully."
+        else
+            echo "Failed to stop $PROCESS_NAME."
+        fi
+    fi
+}
+
+# Function to start a single process with retries
+start_process() {
+    local PROCESS="$1"
+    local PROCESS_PATH=$(echo "$PROCESS" | awk '{print $1}') # Extract process path
+
+    # Extract process name based on pattern
+    if [[ "$PROCESS_PATH" == */bin/* ]]; then
+        local PROCESS_NAME=$(echo "$PROCESS_PATH" | awk -F '/bin/' '{print $(NF-1)}')
+    else
+        local PROCESS_NAME=$(basename "$PROCESS_PATH")
+    fi
+
+    # Stop the process if it is running
+    stop_process "$PROCESS_NAME"
+
+    local RETRIES=0
+    local SUCCESS=0
+    while [ $RETRIES -lt $MAX_RETRIES ]; do
+        echo "Attempting to start $PROCESS (Attempt $((RETRIES+1)))"
+        nohup bash -c "$PROCESS" > /dev/null 2>&1 &
+        sleep 1  # Wait a moment to let the process start
+        if is_process_running "$PROCESS_NAME"; then
+            echo "$PROCESS started successfully"
+            SUCCESS=1
+            break
+        else
+            echo "Failed to start $PROCESS"
+            RETRIES=$((RETRIES+1))
+        fi
+    done
+    return $SUCCESS
+}
+
+# Iterate over the processes and start each one
+for PROCESS in "${PROCESSES[@]}"; do
+    start_process "$PROCESS"
+    if [ $? -ne 1 ]; then
+        echo "Process $PROCESS failed to start. Exiting."
+        exit 1
+    fi
+done
+
+echo "All processes started successfully."
