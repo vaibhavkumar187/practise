@@ -1,0 +1,109 @@
+@Service
+public class AccountService {
+    @Autowired
+    private AccountRepository accountRepository;
+
+    @Autowired
+    private TransactionRepository transactionRepository;
+
+    public Account addAccount(Account account) {
+        return accountRepository.save(account);
+    }
+
+    public void removeAccount(BigInteger accountNumber) {
+        Account account = accountRepository.findById(accountNumber)
+                .orElseThrow(() -> new RuntimeException("Account not found"));
+        account.setEnabled(false);
+        accountRepository.save(account);
+    }
+
+    public void makePayment(BigInteger fromAccount, BigInteger toAccount, Double amount) {
+        Account sender = accountRepository.findById(fromAccount)
+                .orElseThrow(() -> new RuntimeException("Sender account not found"));
+        Account receiver = accountRepository.findById(toAccount)
+                .orElseThrow(() -> new RuntimeException("Receiver account not found"));
+
+        if (!sender.getEnabled() || !receiver.getEnabled()) {
+            throw new RuntimeException("One of the accounts is disabled");
+        }
+
+        if (sender.getBalance() < amount) {
+            throw new RuntimeException("Insufficient balance");
+        }
+
+        // Deduct from sender
+        sender.setBalance(sender.getBalance() - amount);
+        Transaction withdrawTransaction = new Transaction();
+        withdrawTransaction.setTransactionType("WITHDRAW");
+        withdrawTransaction.setAmount(amount);
+        withdrawTransaction.setTransactionDate(new Date());
+        withdrawTransaction.setAccount(sender);
+        transactionRepository.save(withdrawTransaction);
+
+        // Add to receiver
+        receiver.setBalance(receiver.getBalance() + amount);
+        Transaction depositTransaction = new Transaction();
+        depositTransaction.setTransactionType("DEPOSIT");
+        depositTransaction.setAmount(amount);
+        depositTransaction.setTransactionDate(new Date());
+        depositTransaction.setAccount(receiver);
+        transactionRepository.save(depositTransaction);
+
+        accountRepository.save(sender);
+        accountRepository.save(receiver);
+    }
+
+	public List<Transaction> getTransactionHistory(BigInteger accountNumber) {
+    Account account = accountRepository.findById(accountNumber)
+            .orElseThrow(() -> new RuntimeException("Account not found"));
+    return account.getTransactions().stream()
+                  .sorted((t1, t2) -> t2.getTransactionDate().compareTo(t1.getTransactionDate()))
+                  .collect(Collectors.toList());
+}
+
+}
+
+
+@RestController
+@RequestMapping("/users")
+public class UserController {
+    @Autowired
+    private UserService userService;
+
+    @PostMapping("/register")
+    public User registerUser(@RequestBody User user) {
+        return userService.registerUser(user);
+    }
+
+    @PostMapping("/login")
+    public User loginUser(@RequestParam String email, @RequestParam String pass) {
+        return userService.loginUser(email, pass);
+    }
+}
+
+@RestController
+@RequestMapping("/accounts")
+public class AccountController {
+    @Autowired
+    private AccountService accountService;
+
+    @PostMapping("/add")
+    public Account addAccount(@RequestBody Account account) {
+        return accountService.addAccount(account);
+    }
+
+    @PostMapping("/remove/{accountNumber}")
+    public void removeAccount(@PathVariable BigInteger accountNumber) {
+        accountService.removeAccount(accountNumber);
+    }
+
+    @PostMapping("/transfer")
+    public void transferMoney(@RequestParam BigInteger fromAccount, @RequestParam BigInteger toAccount, @RequestParam Double amount) {
+        accountService.makePayment(fromAccount, toAccount, amount);
+    }
+
+	 @GetMapping("/{accountNumber}/transactions")
+    public List<Transaction> getTransactionHistory(@PathVariable BigInteger accountNumber) {
+        return accountService.getTransactionHistory(accountNumber);
+    }
+}
