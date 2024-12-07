@@ -1,0 +1,239 @@
+<div *ngIf="isLoading()" class="btn btn-warning btn-sm">
+  <span class="glyphicon glyphicon-refresh spinning"></span>
+  Loading
+</div>
+
+<!-- Display Comments Based on Role -->
+<div *ngIf="!isLoading()">
+  <div class="comments-list">
+    <ng-container *ngIf="currentUserRole === 'Administrator'; else recordsManagerComments">
+      <!-- CRR Comments for Administrator -->
+      <div *ngFor="let comment of displayedCommentsCRR">
+        <div class="comment-item">
+          <p><b>{{ comment.comment }}</b></p>
+          <p>
+            <i>
+              <b>Last Modified By:</b> {{ comment.lastModifiedBy }} &nbsp;
+              <b>On:</b> {{ comment.lastModifiedDate }} &nbsp;
+              <b>At:</b> {{ comment.lastModifiedTime }}
+            </i>
+          </p>
+          <div class="buttons">
+            <button
+              (click)="editComment(comment)"
+              class="btn btn-sm btn-blue"
+            >
+              Edit
+            </button>
+            <button
+              (click)="deleteComment(comment.id)"
+              class="btn btn-sm btn-danger"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </ng-container>
+
+    <!-- RIM Comments for Records Manager -->
+    <ng-template #recordsManagerComments>
+      <div *ngFor="let comment of displayedCommentsRIM">
+        <div class="comment-item">
+          <p><b>{{ comment.comment }}</b></p>
+          <p>
+            <i>
+              <b>Last Modified By:</b> {{ comment.lastModifiedBy }} &nbsp;
+              <b>On:</b> {{ comment.lastModifiedDate }} &nbsp;
+              <b>At:</b> {{ comment.lastModifiedTime }}
+            </i>
+          </p>
+          <div class="buttons">
+            <button
+              (click)="editComment(comment)"
+              class="btn btn-sm btn-blue"
+            >
+              Edit
+            </button>
+            <button
+              (click)="deleteComment(comment.id)"
+              class="btn btn-sm btn-danger"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </ng-template>
+  </div>
+
+  <!-- Load More Comments Button -->
+  <div *ngIf="!showAllComments && shouldShowLoadButton()" class="load-more">
+    <button (click)="loadAllComments()" class="btn btn-sm btn-primary">
+      Load Comments
+    </button>
+  </div>
+</div>
+
+<!-- Add New Comment -->
+<div class="add-comment" *ngIf="!isLoading()">
+  <textarea
+    [(ngModel)]="newComment"
+    rows="4"
+    cols="72"
+    placeholder="Add your comment here..."
+  ></textarea>
+  <button
+    (click)="addComment()"
+    class="btn btn-sm btn-success"
+    [disabled]="!newComment.trim()"
+  >
+    Add Comment
+  </button>
+</div>
+
+
+
+
+export class RecordStreamCommentsComponent implements OnInit, OnChanges {
+  @Input() selectedRecordStream!: RecordStream;
+  isLoadingRecordStreamComments: boolean = false;
+  currentUserRole: string = '';
+  recordStreamCommentRIM: RecordStreamComments[] = [];
+  recordStreamCommentCRR: RecordStreamComments[] = [];
+  displayedCommentsRIM: RecordStreamComments[] = [];
+  displayedCommentsCRR: RecordStreamComments[] = [];
+  newComment: string = '';
+  showAllComments: boolean = false;
+
+  constructor(
+    private brgRepoService: BrgRepoService,
+    private messageHandlerService: MessageHandlerService
+  ) {}
+
+  ngOnInit(): void {
+    this.getRecordStreamComments(this.selectedRecordStream);
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes.selectedRecordStream) {
+      this.getRecordStreamComments(this.selectedRecordStream);
+    }
+  }
+
+  getRecordStreamComments(recordStream: RecordStream): void {
+    this.isLoadingRecordStreamComments = true;
+    this.brgRepoService.getRecordStreamComments(recordStream.id).subscribe(
+      (data: RecordStreamCommentsResponse) => {
+        this.currentUserRole = data.currentUserRole;
+        this.recordStreamCommentRIM = data.recordStreamCommentRIM
+          ? [data.recordStreamCommentRIM]
+          : [];
+        this.recordStreamCommentCRR = data.recordStreamCommentCRR
+          ? [data.recordStreamCommentCRR]
+          : [];
+
+        this.updateDisplayedComments();
+        this.isLoadingRecordStreamComments = false;
+      },
+      (error) => {
+        this.messageHandlerService.handleErrorMessageEvent('Error fetching comments');
+        this.isLoadingRecordStreamComments = false;
+      }
+    );
+  }
+
+  loadAllComments(): void {
+    if (this.currentUserRole === 'Administrator') {
+      this.displayedCommentsCRR = [...this.recordStreamCommentCRR];
+    } else {
+      this.displayedCommentsRIM = [...this.recordStreamCommentRIM];
+    }
+    this.showAllComments = true;
+  }
+
+  addComment(): void {
+    const comment: RecordStreamComments = {
+      id: '',
+      recordStreamId: this.selectedRecordStream.id,
+      commentOwner: this.currentUserRole,
+      comment: this.newComment,
+      lastModifiedBy: 'Current User',
+      lastModifiedDate: new Date().toLocaleDateString(),
+      lastModifiedTime: new Date().toLocaleTimeString(),
+    };
+
+    this.brgRepoService.postRecordStreamComments(this.selectedRecordStream.id, this.newComment).subscribe(
+      (response: RecordStreamComments) => {
+        if (this.currentUserRole === 'Administrator') {
+          this.recordStreamCommentCRR.unshift(response);
+        } else {
+          this.recordStreamCommentRIM.unshift(response);
+        }
+        this.newComment = '';
+        this.updateDisplayedComments();
+      },
+      (error) => {
+        this.messageHandlerService.handleErrorMessageEvent('Error adding comment');
+      }
+    );
+  }
+
+  editComment(comment: RecordStreamComments): void {
+    const updatedComment = prompt('Edit your comment:', comment.comment);
+    if (updatedComment !== null && updatedComment.trim() !== '') {
+      comment.comment = updatedComment;
+      this.brgRepoService.updateRecordStreamComment(this.selectedRecordStream.id, comment).subscribe(
+        (response: RecordStreamComments) => {
+          Object.assign(comment, response);
+          this.updateDisplayedComments();
+        },
+        (error) => {
+          this.messageHandlerService.handleErrorMessageEvent('Error editing comment');
+        }
+      );
+    }
+  }
+
+  deleteComment(commentId: string): void {
+    if (confirm('Are you sure you want to delete this comment?')) {
+      this.brgRepoService.deleteRecordStreamComment(this.selectedRecordStream.id, commentId).subscribe(
+        () => {
+          if (this.currentUserRole === 'Administrator') {
+            this.recordStreamCommentCRR = this.recordStreamCommentCRR.filter((c) => c.id !== commentId);
+          } else {
+            this.recordStreamCommentRIM = this.recordStreamCommentRIM.filter((c) => c.id !== commentId);
+          }
+          this.updateDisplayedComments();
+        },
+        (error) => {
+          this.messageHandlerService.handleErrorMessageEvent('Error deleting comment');
+        }
+      );
+    }
+  }
+
+  updateDisplayedComments(): void {
+    if (this.currentUserRole === 'Administrator') {
+      this.displayedCommentsCRR = this.showAllComments
+        ? this.recordStreamCommentCRR
+        : this.recordStreamCommentCRR.slice(0, 5);
+    } else {
+      this.displayedCommentsRIM = this.showAllComments
+        ? this.recordStreamCommentRIM
+        : this.recordStreamCommentRIM.slice(0, 5);
+    }
+  }
+
+  shouldShowLoadButton(): boolean {
+    if (this.currentUserRole === 'Administrator') {
+      return this.recordStreamCommentCRR.length > 5;
+    } else {
+      return this.recordStreamCommentRIM.length > 5;
+    }
+  }
+
+  isLoading(): boolean {
+    return this.isLoadingRecordStreamComments;
+  }
+}
