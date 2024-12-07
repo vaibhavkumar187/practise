@@ -1,0 +1,8 @@
+spring.datasource.driverClassName-org.postgresql.Driver
+
+
+spring.datasource.url= jdbocspostgresal://crr-dev-brr_199725_dev.compute.us-east-newyork.cloud.gacgen=12400/crr_amer_dev
+
+
+spring.datasource.username-crrdev001
+spring.datasource-password lv@VED RRC
