@@ -1,0 +1,80 @@
+downloadRunQuery() {
+  this.queryResult = []; // Clear existing results
+  this.isRunningQuery = true;
+
+  const allResults: QueryResult[] = [];
+  const rowsPerPage = this.PAGINATION_ITEMS_PER_PAGE_LIST[0]; // Start with the first pagination size
+  let start = 0;
+
+  const fetchPage = () => {
+    this.brgRepoService
+      .runCombinedQuery({
+        query: this.brgService.getQueryRequest(this.queryTags),
+        start: start,
+        rows: rowsPerPage,
+      })
+      .subscribe(
+        (res) => {
+          if (res.results && res.results.length > 0) {
+            allResults.push(...res.results);
+          }
+
+          if (allResults.length < res.numFound) {
+            // More data to fetch, move to the next page
+            start += rowsPerPage;
+            fetchPage(); // Recursively fetch the next page
+          } else {
+            // All data retrieved, set final results
+            this.isRunningQuery = false;
+            this.queryResult = allResults;
+            console.log("All query results downloaded:", this.queryResult);
+          }
+        },
+        (error) => {
+          this.isRunningQuery = false;
+          console.error("Error downloading query results:", error);
+        }
+      );
+  };
+
+  fetchPage(); // Start fetching data
+}
+
+downloadRunQuery() {
+  this.isRunningQuery = true;  
+  this.queryResult = []; // Clear existing results
+
+  const allResults: QueryResult[] = [];
+  let start = this.PAGINATION_INITIAL_START;
+  const rows = this.PAGINATION_ITEMS_PER_PAGE_LIST[0]; // Fetch using the smallest pagination size
+  let totalRows = 0;
+
+  const fetchPage = () => {
+    this.brgRepoService.runCombinedQuery({
+      query: this.brgService.getQueryRequest(this.queryTags),
+      start: start,
+      rows: rows
+    }).subscribe(
+      res => {
+        allResults.push(...res.results);
+        totalRows = res.numFound; 
+
+        // Check if we need to fetch more pages
+        if (start + rows < totalRows) {
+          start += rows;
+          fetchPage(); // Recursive call for next batch
+        } else {
+          this.isRunningQuery = false;
+          this.queryResult = allResults;
+          console.log("Download complete. Total results:", allResults.length);
+        }
+      },
+      error => {
+        this.isRunningQuery = false;
+        console.error("Error fetching query results", error);
+      }
+    );
+  };
+
+  fetchPage();
+}
