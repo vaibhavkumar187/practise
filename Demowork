@@ -7,3 +7,6 @@ function parseDateSafe(dateStr: string): number {
     return 0; // Fallback
   }
 }
+
+let leftNextScheduledDate = left.nextScheduledRunTime ? parseDateSafe(left.nextScheduledRunTime) : 0;
+let rightNextScheduledDate = right.nextScheduledRunTime ? parseDateSafe(right.nextScheduledRunTime) : 0;
