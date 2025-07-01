@@ -1,0 +1,9 @@
+function parseDateSafe(dateStr: string): number {
+  try {
+    // Remove timezone info and parse as local time
+    let cleaned = dateStr.replace(/\s[A-Z]{3,4}\s/, ' ');
+    return new Date(cleaned).getTime(); // fallback local time
+  } catch (e) {
+    return 0; // Fallback
+  }
+}
