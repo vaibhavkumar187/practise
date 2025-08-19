@@ -1,0 +1,232 @@
+public interface ArchiveQueryStrategy {
+    List<ArchiveQueryResult> filter(List<ArchiveQueryResult> results);
+}
+
+@Component("ALL")
+public class AllFilesStrategy implements ArchiveQueryStrategy {
+    @Override
+    public List<ArchiveQueryResult> filter(List<ArchiveQueryResult> results) {
+        return results; // no filtering
+    }
+}
+
+@Component("VALIDATED")
+public class ValidatedFilesStrategy implements ArchiveQueryStrategy {
+    @Override
+    public List<ArchiveQueryResult> filter(List<ArchiveQueryResult> results) {
+        return results.stream()
+                .filter(r -> !r.isInvalidated()) // assumes ArchiveQueryResult has isInvalidated()
+                .collect(Collectors.toList());
+    }
+}
+
+____________________________________________________________________________________________________________
+
+@Component
+public class ArchiveQueryStrategyFactory {
+    private final Map<String, ArchiveQueryStrategy> strategies = new HashMap<>();
+
+    @Autowired
+    public ArchiveQueryStrategyFactory(
+            AllRecordsStrategy allStrategy,
+            ValidatedRecordsStrategy validatedStrategy) {
+        strategies.put("ALL", allStrategy);
+        strategies.put("VALIDATED", validatedStrategy);
+    }
+
+    public ArchiveQueryStrategy getStrategy(String mode) {
+        return strategies.getOrDefault(mode, strategies.get("ALL"));
+    }
+}
+
+
+public class ArchiveQueryRequest {
+    public Map<String, List<String>> query;
+    public int rows;
+    public int start;
+    public String mode;  // NEW FIELD: "ALL" or "VALIDATED"
+}
+
+______________________________________________________________________________________________________________
+
+
+
+
+@Service
+public class SolrArchiveQueryService implements ArchiveQueryService {
+
+    @Autowired
+    private SolrGateway solrGateway;
+
+    @Autowired
+    private FileDescriptorService fileDescriptorService;
+
+    @Autowired
+    private RecordStreamService recordStreamService;
+
+    @Autowired
+    private StrategyFactory strategyFactory;
+
+    @Override
+    public ArchiveQueryResults performQuery(ArchiveQueryRequest archiveQueryRequest) throws Exception {
+        int pageSize = archiveQueryRequest.rows;
+        int start = archiveQueryRequest.start;
+
+        ArchiveQueryStrategy strategy = strategyFactory.getStrategy(archiveQueryRequest.mode);
+
+        List<ArchiveQueryResult> accumulated = new ArrayList<>();
+        int batchStart = start;
+        boolean moreDocs = true;
+
+        while (accumulated.size() < pageSize && moreDocs) {
+            SolrQueryResults solrQueryResults = solrGateway.performQuery(
+                    archiveQueryRequest.query,
+                    pageSize, // fetch in pageSize chunks
+                    batchStart
+            );
+
+            List<ArchiveQueryResult> rawResults = archiveQueryResultsFrom(
+                    solrQueryResults.documents,
+                    archiveQueryRequest.query
+            );
+
+            if (rawResults.isEmpty()) {
+                moreDocs = false;
+                break;
+            }
+
+            List<ArchiveQueryResult> filtered = strategy.filter(rawResults);
+            accumulated.addAll(filtered);
+
+            batchStart += pageSize; // move to next chunk
+        }
+
+        List<ArchiveQueryResult> finalPage = accumulated.size() > pageSize
+                ? accumulated.subList(0, pageSize)
+                : accumulated;
+
+        return new ArchiveQueryResults.Builder()
+                .setStart(start)
+                .setRows(finalPage.size())
+                .setNumFound(accumulated.size()) // OR solrQueryResults.numFound depending on UI needs
+                .setResults(finalPage)
+                .build();
+    }
+
+    private List<ArchiveQueryResult> archiveQueryResultsFrom(
+            List<Map<String, Object>> solrDocumentMaps,
+            Map<String, List<String>> query) throws Exception {
+
+        List<ArchiveQueryResult> queryResults = new ArrayList<>();
+
+        for (Map<String, Object> solrDocumentMap : solrDocumentMaps) {
+            UUID fileDescriptorId = UUID.fromString((String) solrDocumentMap.get("id"));
+            FileDescriptor fileDescriptor = fileDescriptorService.fileDescriptorFor(fileDescriptorId)
+                    .orElseThrow(() -> new Exception("Unable to find file descriptor " + fileDescriptorId));
+
+            RecordStream recordStream = recordStreamService.recordStreamById(fileDescriptor.getRecordStreamId())
+                    .orElseThrow(() -> new Exception("Unable to find record stream " + fileDescriptor.getRecordStreamId()));
+
+            queryResults.add(
+                    archiveQueryResultFrom(fileDescriptor, recordStream,
+                            downloadUrl(fileDescriptor),
+                            downloadLogUrl(fileDescriptorId),
+                            downloadFilterUrl(fileDescriptor, recordStream, query))
+            );
+        }
+
+        return queryResults;
+    }
+}
+
+_________________________________________________________________________________________________________________
+
+
+@Service
+public class AwsPaginatedQueryService implements ArchiveQueryService {
+
+    @Autowired
+    private AwsGateway awsGateway;
+
+    @Autowired
+    private FileDescriptorService fileDescriptorService;
+
+    @Autowired
+    private RecordStreamService recordStreamService;
+
+    @Autowired
+    private StrategyFactory strategyFactory;
+
+    @Override
+    public ArchiveQueryResults performQuery(ArchiveQueryRequest archiveQueryRequest) throws Exception {
+        int pageSize = archiveQueryRequest.rows;
+        int start = archiveQueryRequest.start;
+
+        ArchiveQueryStrategy strategy = strategyFactory.getStrategy(archiveQueryRequest.mode);
+
+        List<ArchiveQueryResult> accumulated = new ArrayList<>();
+        int batchStart = start;
+        boolean moreDocs = true;
+
+        while (accumulated.size() < pageSize && moreDocs) {
+            AwsQueryResults awsQueryResults = awsGateway.performQuery(
+                    archiveQueryRequest.query,
+                    pageSize,
+                    batchStart
+            );
+
+            List<ArchiveQueryResult> rawResults = archiveQueryResultsFrom(
+                    awsQueryResults.documents,
+                    archiveQueryRequest.query
+            );
+
+            if (rawResults.isEmpty()) {
+                moreDocs = false;
+                break;
+            }
+
+            List<ArchiveQueryResult> filtered = strategy.filter(rawResults);
+            accumulated.addAll(filtered);
+
+            batchStart += pageSize; // advance cursor
+        }
+
+        List<ArchiveQueryResult> finalPage = accumulated.size() > pageSize
+                ? accumulated.subList(0, pageSize)
+                : accumulated;
+
+        return new ArchiveQueryResults.Builder()
+                .setStart(start)
+                .setRows(finalPage.size())
+                .setNumFound(accumulated.size())
+                .setResults(finalPage)
+                .build();
+    }
+
+    private List<ArchiveQueryResult> archiveQueryResultsFrom(
+            List<Map<String, Object>> awsDocumentMaps,
+            Map<String, List<String>> query) throws Exception {
+
+        List<ArchiveQueryResult> queryResults = new ArrayList<>();
+
+        for (Map<String, Object> awsDocumentMap : awsDocumentMaps) {
+            UUID fileDescriptorId = UUID.fromString((String) awsDocumentMap.get("id"));
+            FileDescriptor fileDescriptor = fileDescriptorService.fileDescriptorFor(fileDescriptorId)
+                    .orElseThrow(() -> new Exception("Unable to find file descriptor " + fileDescriptorId));
+
+            RecordStream recordStream = recordStreamService.recordStreamById(fileDescriptor.getRecordStreamId())
+                    .orElseThrow(() -> new Exception("Unable to find record stream " + fileDescriptor.getRecordStreamId()));
+
+            queryResults.add(
+                    archiveQueryResultFrom(fileDescriptor, recordStream,
+                            downloadUrl(fileDescriptor),
+                            downloadLogUrl(fileDescriptorId),
+                            downloadFilterUrl(fileDescriptor, recordStream, query))
+            );
+        }
+
+        return queryResults;
+    }
+}
+
+__________________________________________________________________________________________________________________

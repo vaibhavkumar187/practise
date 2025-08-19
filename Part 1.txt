@@ -1,0 +1,95 @@
+@Override
+public ArchiveQueryResults performQuery(ArchiveQueryRequest archiveQueryRequest) throws Exception {
+    int pageSize = archiveQueryRequest.getRows();
+    int solrStart = archiveQueryRequest.getStart();
+
+    List<ArchiveQueryResult> pageResults = new ArrayList<>();
+    int consumed = 0; // raw Solr docs consumed
+
+    while (pageResults.size() < pageSize) {
+        // Fetch a batch (can be equal to pageSize for efficiency)
+        int fetchSize = pageSize;
+        SolrQueryResults solrQueryResults = solrGateway.performQuery(
+                archiveQueryRequest.getQuery(),
+                fetchSize,
+                solrStart + consumed
+        );
+
+        if (solrQueryResults == null || solrQueryResults.getDocuments().isEmpty()) {
+            // No more docs in Solr
+            break;
+        }
+
+        for (Map<String, Object> doc : solrQueryResults.getDocuments()) {
+            consumed++; // count every raw doc seen
+
+            Boolean invalid = (Boolean) doc.get("isInvalidated");
+            if (invalid == null || !invalid) {
+                pageResults.add(archiveQueryResultFromDoc(doc)); // your existing conversion
+            }
+
+            if (pageResults.size() == pageSize) {
+                break; // we have enough for this page
+            }
+        }
+    }
+
+    return new ArchiveQueryResults.Builder()
+            .setStart(solrStart) // logical start for UI
+            .setRows(pageResults.size())
+            .setNumFound(pageResults.size()) // careful: this now means "valid docs in page"
+            .setResults(pageResults)
+            .build();
+}
+
+
+public AwsArchiveQueryResultsDTO paginatedQuery(ArchiveQueryRequest archiveQueryRequest) {
+    int pageSize = archiveQueryRequest.getRows();
+    int awsStart = archiveQueryRequest.getStart();
+    List<ArchiveQueryResult> pageResults = new ArrayList<>();
+    int consumed = 0;
+
+    while (pageResults.size() < pageSize) {
+        ArchiveQueryRequest request = new ArchiveQueryRequest.Builder()
+                .setQuery(archiveQueryRequest.getQuery())
+                .setRows(pageSize)
+                .setStart(awsStart + consumed)
+                .build();
+
+        String queryUrl = String.join("/", awsQueryServiceBaseUrl, "paginatedquery");
+        Response response = ClientBuilder.newClient()
+                .target(queryUrl)
+                .request(APPLICATION_JSON)
+                .header("Content-type", APPLICATION_JSON)
+                .post(Entity.entity(request, APPLICATION_JSON));
+
+        if (!responseIsOkay(response)) {
+            throw new RuntimeException("AWS query failed with status " + response.getStatus());
+        }
+
+        String responseJson = response.readEntity(String.class);
+        AwsArchiveQueryResultsDTO awsResults = unmarshallQueryResultJson(responseJson);
+
+        if (awsResults == null || awsResults.getResults().isEmpty()) {
+            break; // no more docs in AWS
+        }
+
+        for (ArchiveQueryResult doc : awsResults.getResults()) {
+            consumed++;
+            Boolean invalid = (Boolean) doc.get("isInvalidated"); // adapt based on DTO structure
+            if (invalid == null || !invalid) {
+                pageResults.add(doc);
+            }
+            if (pageResults.size() == pageSize) {
+                break;
+            }
+        }
+    }
+
+    AwsArchiveQueryResultsDTO finalResult = new AwsArchiveQueryResultsDTO();
+    finalResult.setResults(pageResults);
+    finalResult.setRows(pageResults.size());
+    finalResult.setStart(awsStart);
+    finalResult.setNumFound(pageResults.size()); // careful: valid only count
+    return finalResult;
+}
