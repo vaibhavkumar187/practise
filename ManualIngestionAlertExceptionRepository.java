@@ -29,6 +29,12 @@ public class ManualIngestionAlertException {
     @Column(name = "record_date")
     private String recordDate;
 
+    @Column(name = "valid")
+    private String valid;
+
+    @Column(name= "status")
+    private String status;
+
     @Column(name = "date_of_attestation")
     private String dateOfAttestation;
 
@@ -72,7 +78,7 @@ public class ManualIngestionAlertExceptionService {
     @Autowired
     private ManualIngestionAlertExceptionRepository repository;
 
-    public Optional<ManualIngestionAlertException> manualIngestionAlertExceptionFor(UUID recordStreamId, UUID recordId, int dueDate) {
+    public Optional<ManualIngestionAlertException> manualIngestionAlertExceptionFor(UUID recordStreamId, UUID recordId, int dueDate, String status) {
         return repository.findByRecordStreamIdAndRecordIdAndDueDate(recordStreamId, recordId, dueDate);
     }
 
@@ -82,6 +88,7 @@ public class ManualIngestionAlertExceptionService {
 
     public Optional<List<ManualIngestionAlertException>> attestationReports(List<Integer> dateYYYYMMDDRange) {
         List<ManualIngestionAlertException> results = repository.findByDueDateIn(dateYYYYMMDDRange);
+        System.out.println("Done Logging...");
         return results.isEmpty() ? Optional.empty() : Optional.of(results);
     }
 }
