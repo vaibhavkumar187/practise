@@ -26,6 +26,9 @@ public class ManualIngestionAlertException {
     @Column(name = "reason")
     private String reason;
 
+    @Column(name = "record_date")
+    private String recordDate;
+
     @Column(name = "date_of_attestation")
     private String dateOfAttestation;
 
