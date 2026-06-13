@@ -26,6 +26,9 @@ public class ManualIngestionAlertException {
     @Column(name = "reason")
     private String reason;
 
+    @Column(name = "valid")
+    private String valid;
+
     @Column(name= "status")
     private String status;
 
@@ -82,6 +85,7 @@ public class ManualIngestionAlertExceptionService {
 
     public Optional<List<ManualIngestionAlertException>> attestationReports(List<Integer> dateYYYYMMDDRange) {
         List<ManualIngestionAlertException> results = repository.findByDueDateIn(dateYYYYMMDDRange);
+        System.out.println("Done Logging...");
         return results.isEmpty() ? Optional.empty() : Optional.of(results);
     }
 }

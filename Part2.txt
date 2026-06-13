@@ -10,6 +10,15 @@ public class AllFilesStrategy implements ArchiveQueryStrategy {
     }
 }
 
+@Component("INVALIDATED")
+public class InValidatedFilesStrategy implements ArchiveQueryStrategy {
+    @Override
+    public List<ArchiveQueryResult> filter(List<ArchiveQueryResult> results) {
+        return results.stream()
+                .filter(r -> r.isInvalidated()) // assumes ArchiveQueryResult has isInvalidated()
+                .collect(Collectors.toList());
+    }
+}
 //Removed
 
 ____________________________________________________________________________________________________________
