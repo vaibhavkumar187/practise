@@ -26,6 +26,9 @@ public class ManualIngestionAlertException {
     @Column(name = "reason")
     private String reason;
 
+    @Column(name= "status")
+    private String status;
+
     @Column(name = "date_of_attestation")
     private String dateOfAttestation;
 
@@ -69,7 +72,7 @@ public class ManualIngestionAlertExceptionService {
     @Autowired
     private ManualIngestionAlertExceptionRepository repository;
 
-    public Optional<ManualIngestionAlertException> manualIngestionAlertExceptionFor(UUID recordStreamId, UUID recordId, int dueDate) {
+    public Optional<ManualIngestionAlertException> manualIngestionAlertExceptionFor(UUID recordStreamId, UUID recordId, int dueDate, String status) {
         return repository.findByRecordStreamIdAndRecordIdAndDueDate(recordStreamId, recordId, dueDate);
     }
 
